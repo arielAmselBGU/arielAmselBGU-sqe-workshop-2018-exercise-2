@@ -1,1 +1,1 @@
-import './code-analyzer.test';
+import './Task2.tests';
