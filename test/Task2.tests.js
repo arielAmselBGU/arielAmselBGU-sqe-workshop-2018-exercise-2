@@ -198,6 +198,24 @@ describe('Test task2', () => {
         );
     });
 
+    it('test18', () => {
+        assert.deepEqual(
+            (symbolicSubstitutionAndEval('let x = [1,2,3];x[0]'
+                ,[1])),
+            { newCode: '1;'
+                , red: [], green: [] }
+        );
+    });
+
+    it('test19', () => {
+        assert.deepEqual(
+            (symbolicSubstitutionAndEval('let x;x'
+                ,[1])),
+            { newCode: 'x;'
+                , red: [], green: [] }
+        );
+    });
+
 
 
 

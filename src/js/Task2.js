@@ -69,7 +69,6 @@ function addDuplicateScope (){
 }
 
 export function symbolicSubstitutionAndEval(codeToParse,inputVec) {
-
     greenRanges = [];
     redRanges = [];
     parametersListForColors =[];
@@ -77,72 +76,46 @@ export function symbolicSubstitutionAndEval(codeToParse,inputVec) {
     nodesToRemove =[];
     scopedVariables= [];
     declareScope = [];
-
     addNewScope([]);
     inputVector = inputVec;
-
     let programTree = esprima.parse(codeToParse);
     myTraversal(programTree.body,handleSubstitution);
     myTraversal(programTree,handleDeleteNodes);
-
     let substitutedCode = codeGen.generate(programTree).replace (/\n\s*;\n/gi,'\n');
+    substitutedCode = substitutedCode.replace(/\['RemoveThis'\]/gi,'');
     let newCodeTree = esprima.parse(substitutedCode,{tolerant:true,loc:true});
     myTraversal(newCodeTree.body,handleColors);
-
     return {newCode: substitutedCode,red: redRanges,green: greenRanges};
+}
+
+function hs1 (node){
+    let shit = [];
+    shit ['VariableDeclaration'] = ()=>{HandleVarDec(node); nodesToRemove.push(node);};
+    shit['AssignmentExpression'] = () => { handleAssignment(node); if ( declaredInCurrentScope(node.left.name)) nodesToRemove.push(node);};
+    shit['FunctionDeclaration'] = () => {handleFunctionDeclaration(node);};
+    shit['IfStatement'] = () => {handleIfSatment(node);};
+    shit['WhileStatement'] = () => {myTraversal(node.test,handleSubstitution); addDuplicateScope(); myTraversal(node.body,handleSubstitution); removeScope();};
+    shit['ForStatement'] = () => { addNewScope([]); myTraversal(node.init,handleSubstitution); myTraversal(node.test,handleSubstitution); myTraversal(node.update,handleSubstitution); myTraversal(node.body,handleSubstitution); removeScope();};
+    shit['Identifier'] = () => {let updatedValue = ReplaceStringIdentifiers(node.name); if (updatedValue!== undefined) node.name = updatedValue;};
+    shit ['MemberExpression'] = () =>{ let newValue = esprima.parse(findInScopedDictionary(node.object.name)).body[0].expression.elements[node.property.value].value;       if (newValue !== undefined){  node.object.name = newValue; node.property.value = 'RemoveThis';}};
+    let ans = shit[node.type];
+    if (ans !== undefined)
+        ans();
+    else
+        for (let property in node)
+            if (Array.isArray(node[property]) || typeof node[property] === 'object')
+                myTraversal(node[property],handleSubstitution);
 
 }
 
 function handleSubstitution (node){
     if (node === null || node === undefined)
         return;
-    let updatedValue;
-    switch (node.type) {
-        case 'VariableDeclaration'://let declaration
-            HandleVarDec(node);
-            nodesToRemove.push(node);
-            break;
-        case 'AssignmentExpression':
-            handleAssignment(node);
-            if ( declaredInCurrentScope(node.left.name))
-                nodesToRemove.push(node);
-            break;
-        case 'FunctionDeclaration':
-            handleFunctionDeclaration(node);
-            break;
-        case 'IfStatement':
-            handleIfSatment(node);
-            break;
-        case 'WhileStatement':
-            myTraversal(node.test,handleSubstitution);
-            addDuplicateScope();
-            myTraversal(node.body,handleSubstitution);
-            removeScope();
-            break;
-        case 'ForStatement':
-            addNewScope([]);
-            myTraversal(node.init,handleSubstitution);
-            myTraversal(node.test,handleSubstitution);
-            myTraversal(node.update,handleSubstitution);
-            myTraversal(node.body,handleSubstitution);
-            removeScope();
-            break;
-        case 'Identifier':
-            updatedValue = ReplaceStringIdentifiers(node.name);
-            if (updatedValue!== undefined)
-                node.name = updatedValue;
-            break;
-        default:
-            for (let property in node) {
-                if (Array.isArray(node[property]) || typeof node[property] === 'object')
-                    myTraversal(node[property],handleSubstitution);
-            }
-    }
+
+    hs1(node);
 }
 
 function handleDeleteNodes(node) {
-    /*if (node === null || node === undefined)
-        return;*/
     for (let property in node) {
         let nodeProperty = node[property];
         if (Array.isArray(nodeProperty)) {
@@ -156,66 +129,40 @@ function handleDeleteNodes(node) {
         } else if (typeof  nodeProperty === 'object'){ // todo in case of object
             nodesToRemove.forEach(toRemove => {
                 if (nodeProperty === toRemove)
-                    node[property]= esprima.parse("");
+                    node[property]= esprima.parse('');
             });
-            if (nodeProperty!==undefined)
-                myTraversal(nodeProperty,handleDeleteNodes);
-        }
-    }
+            myTraversal(nodeProperty,handleDeleteNodes);
+        } }
 }
 
 function setIfColor(node){
-    esTraverse.traverse(node.test,{
-        enter:function (node) {
-            if (node.type === 'Identifier'){
-                let indexOfParameter = parametersListForColors.indexOf(node.name);
-                let inputVectorValue = inputVector[indexOfParameter];
-                /*let varValue = findInScopedDictionary(inputVectorValue);
-                if (varValue!== undefined){
-                    node.name = varValue;
-                }else if (inputVectorValue !== undefined) {
-                    node.name = inputVectorValue.toString();
-                }*/
-                if (inputVectorValue !== undefined) {
-                    node.name = inputVectorValue.toString();
-                }
+    esTraverse.traverse(node.test,{ enter:function (node) {
+        if (node.type === 'Identifier'){
+            let indexOfParameter = parametersListForColors.indexOf(node.name);
+            let inputVectorValue = inputVector[indexOfParameter];
+            if (inputVectorValue !== undefined) {
+                node.name = inputVectorValue.toString();
             }
         }
-    });
-
-    let testEval;
-    try{
-        testEval = eval(codeGen.generate(node.test));
-    }catch (e) {
-        return;
     }
-    if (testEval){
-        greenRanges.push(node.test.loc.start.line-1);
-        myTraversal(node.consequent,handleColors);
-    } else{
+    });
+    let testEval;
+    try{ testEval = eval(codeGen.generate(node.test));}catch (e) {return;}
+    if (testEval){ greenRanges.push(node.test.loc.start.line-1); myTraversal(node.consequent,handleColors);}
+    else{
         redRanges.push(node.test.loc.start.line-1);
         myTraversal(node.alternate,handleColors);
     }
 }
 
 function setLoopColor(node) {
-    esTraverse.traverse(node.test,{
-        enter:function (node) {
-            if (node.type === 'Identifier'){
-                let indexOfParameter = parametersListForColors.indexOf(node.name);
-                let inputVectorValue = inputVector[indexOfParameter];
-                /*let varValue = findInScopedDictionary(inputVectorValue);
-                if (varValue!== undefined){
-                    node.name = varValue;
-                }else if (inputVectorValue !== undefined) {
-                    node.name = inputVectorValue.toString();
-                }*/
-                if (inputVectorValue !== undefined) {
-                    node.name = inputVectorValue.toString();
-                }
-            }
-        }
-    });
+    esTraverse.traverse(node.test,{enter:function (node) {
+        if (node.type === 'Identifier'){
+            let indexOfParameter = parametersListForColors.indexOf(node.name);
+            let inputVectorValue = inputVector[indexOfParameter];
+            if (inputVectorValue !== undefined) {
+                node.name = inputVectorValue.toString();
+            } } } });
     let testEval;
     try{
         testEval = eval(codeGen.generate(node.test));
@@ -225,38 +172,61 @@ function setLoopColor(node) {
     if (testEval){
         greenRanges.push(node.test.loc.start.line-1);
         myTraversal(node.body,handleColors);
-    }else{
-        redRanges.push(node.test.loc.start.line-1);
-    }
+    }else{ redRanges.push(node.test.loc.start.line-1); }
+}
+
+
+
+function hc1 (node){
+    let shit = [];
+    shit['FunctionDeclaration'] =(node2) =>
+    {
+        parametersListForColors = node2.params.map(x => x.name);
+        myTraversal(node2.body,handleColors); parametersListForColors.shift();
+    };
+    shit ['IfStatement'] = (node) => {setIfColor(node);};
+    shit ['WhileStatement'] = (node) => {setLoopColor(node);};
+    shit ['ForStatement'] = (node) => { setLoopColor(node);};
+
+    let ans =  shit[node.type];
+    if (ans !== undefined)
+        ans(node);
+    else
+        for (let property in node) {
+            if (Array.isArray(node[property]) || typeof node[property] === 'object')
+                myTraversal(node[property],handleColors);
+        }
 }
 
 function handleColors(node) {
     if (node === null || node === undefined)
         return;
-    switch (node.type) {
-        case  'FunctionDeclaration':
-            parametersListForColors = node.params.map(x => x.name);
-            myTraversal(node.body,handleColors);
-            parametersListForColors.shift();
-            break;
-        case 'IfStatement':
-            //update node test with input vector
-            setIfColor(node);
-            break;
-        case 'WhileStatement':
-            setLoopColor(node);
-            break;
-        case 'ForStatement':
-            setLoopColor(node);
-            break;
-        default:
-            for (let property in node) {
-                if (Array.isArray(node[property]) || typeof node[property] === 'object')
-                    myTraversal(node[property],handleColors);
-            }
-    }
-
+    hc1(node);
 }
+
+/*
+    switch (node.type) {
+    case  'FunctionDeclaration':
+        parametersListForColors = node.params.map(x => x.name);
+        myTraversal(node.body,handleColors);
+        parametersListForColors.shift();
+        break;
+    case 'IfStatement':
+        //update node test with input vector
+        setIfColor(node);
+        break;
+    case 'WhileStatement':
+        setLoopColor(node);
+        break;
+    case 'ForStatement':
+        setLoopColor(node);
+        break;
+    default:
+        for (let property in node) {
+            if (Array.isArray(node[property]) || typeof node[property] === 'object')
+                myTraversal(node[property],handleColors);
+        }
+    }*/
 
 function myTraversal (node,handler) {
     if (Array.isArray(node)) {
@@ -278,19 +248,16 @@ function ReplaceStringIdentifiers(toReplace) {
 
 /** update an esprima tree from table **/
 function ReplaceIdentifiers (toReplace){
-    if (toReplace !== undefined) {
-        esTraverse.traverse(toReplace, {
-            enter: function (node) {
-                if (node.type === 'Identifier') {
-                    let valueInDictionary = findInScopedDictionary(node.name);
-                    if (valueInDictionary !== undefined) {
-                        node.name = valueInDictionary;
-                    }
+    esTraverse.traverse(toReplace, {
+        enter: function (node) {
+            if (node.type === 'Identifier') {
+                let valueInDictionary = findInScopedDictionary(node.name);
+                if (valueInDictionary !== undefined) {
+                    node.name = valueInDictionary;
                 }
             }
-        });
-    }
-
+        }
+    });
 }
 
 /**
@@ -353,7 +320,7 @@ function handleAssignment(ass) {
 
 
 function handleFunctionDeclaration(node) {
-    getParamByIndex(0).forEach(param => {if (! getScopeByIndex(0).hasOwnProperty(param)) addToScopedDictionary(param,undefined);}); // if a parameter is declared but isn't used in scope
+    getParamByIndex(0).forEach(param => {addToScopedDictionary(param,undefined);}); // if a parameter is declared but isn't used in scope
     addNewScope(node.params.map(x => x.name));
     myTraversal(node.body,handleSubstitution);
     removeScope();
